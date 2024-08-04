@@ -1,6 +1,8 @@
-import type { SVGProps } from 'react'
+import type { MouseEvent, SVGProps } from 'react'
 
+import { useMemo } from 'react'
 import * as Checkbox from '@radix-ui/react-checkbox'
+import { useAutoAnimate } from '@formkit/auto-animate/react'
 
 import { api } from '@/utils/client/api'
 
@@ -63,18 +65,99 @@ import { api } from '@/utils/client/api'
  *  - https://auto-animate.formkit.com
  */
 
-export const TodoList = () => {
+interface ITodo {
+  id: number
+  body: string
+  status: 'pending' | 'completed'
+}
+
+export const TodoList = ({ tab }: { tab: string }) => {
+  const [animationParent] = useAutoAnimate()
+  const apiContext = api.useContext()
+
   const { data: todos = [] } = api.todo.getAll.useQuery({
     statuses: ['completed', 'pending'],
   })
 
+  const listTodos = useMemo(() => {
+    try {
+      let listTodos: ITodo[] = todos
+      const pendingTodos = todos.filter(
+        (todo: ITodo) => todo?.status === 'pending'
+      )
+      const completedTodos = todos.filter(
+        (todo: ITodo) => todo?.status === 'completed'
+      )
+      if (tab === 'all') {
+        listTodos = [...pendingTodos, ...completedTodos]
+      } else if (tab === 'pending') {
+        listTodos = pendingTodos
+      } else if (tab === 'completed') {
+        listTodos = completedTodos
+      }
+      return listTodos
+    } catch {
+      throw new Error('Something went wrong. Please refresh this page')
+    }
+  }, [tab, todos])
+
+  const { mutate: patchTodo } = api.todoStatus.update.useMutation({
+    onSuccess: () => {
+      apiContext.todo.getAll.refetch()
+    },
+  })
+
+  const { mutate: deleteTodo } = api.todo.delete.useMutation({
+    onSuccess: () => {
+      apiContext.todo.getAll.refetch()
+    },
+  })
+
+  const removeTodoOnClick = (
+    e: MouseEvent<HTMLButtonElement>,
+    todoId: number
+  ) => {
+    e.preventDefault()
+    deleteTodo({
+      id: todoId,
+    })
+  }
+
+  const checkTodoOnClick = (checkStatus: boolean, todoId: number) => {
+    if (todoId) {
+      if (checkStatus) {
+        patchTodo({
+          status: 'completed',
+          todoId,
+        })
+      } else {
+        patchTodo({
+          status: 'pending',
+          todoId,
+        })
+      }
+    } else {
+      throw new Error('Something went wrong. Please refresh this page')
+    }
+  }
+
   return (
-    <ul className="grid grid-cols-1 gap-y-3">
-      {todos.map((todo) => (
+    <ul className="grid grid-cols-1 gap-y-3" ref={animationParent}>
+      {listTodos.map((todo) => (
         <li key={todo.id}>
-          <div className="flex items-center rounded-12 border border-gray-200 px-4 py-3 shadow-sm">
+          <div
+            className={`${
+              todo?.status === 'completed'
+                ? 'bg-[#F8FAFC] text-[#64748B] line-through'
+                : ''
+            } flex items-center rounded-12 border border-gray-200 px-4 py-3 shadow-sm`}
+          >
             <Checkbox.Root
+              onCheckedChange={(status) =>
+                checkTodoOnClick(status as boolean, todo?.id)
+              }
               id={String(todo.id)}
+              checked={todo?.status === 'completed'}
               className="flex h-6 w-6 items-center justify-center rounded-6 border border-gray-300 focus:border-gray-700 focus:outline-none data-[state=checked]:border-gray-700 data-[state=checked]:bg-gray-700"
             >
               <Checkbox.Indicator>
@@ -85,6 +168,14 @@ export const TodoList = () => {
             <label className="block pl-3 font-medium" htmlFor={String(todo.id)}>
               {todo.body}
             </label>
+            <button
+              type="button"
+              onClick={(e) => removeTodoOnClick(e, todo?.id)}
+              aria-label="Remove Todo"
+              className="ml-auto rounded-full text-sm font-bold"
+            >
+              <XMarkIcon className="flex h-6 w-6 justify-end" />
+            </button>
           </div>
         </li>
       ))}
